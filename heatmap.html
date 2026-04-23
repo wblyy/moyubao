@@ -116,7 +116,7 @@
   <div class="file-list" id="file-list"></div>
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
   <div id="parse-error"></div>
-  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.0 · 2026-04-23</div>
+  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.1 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing ─────────────────────────────────────── -->
@@ -297,22 +297,34 @@ function buildHeatmapData(allRows) {
     dateSet.add(r.date);
   }
 
+  // Merge userKeys that resolve to the same display label (same person, different devices/accounts)
+  const labelToCanonical = {};  // label → first userKey encountered
+  const canonicalKey = {};      // anyUserKey → canonical userKey
+  for (const [uk, meta] of Object.entries(userMeta)) {
+    if (!labelToCanonical[meta.label]) labelToCanonical[meta.label] = uk;
+    canonicalKey[uk] = labelToCanonical[meta.label];
+  }
+  for (const uk of Object.keys(userMeta)) {
+    if (canonicalKey[uk] !== uk) delete userMeta[uk];
+  }
+
   const dates = [...dateSet].sort();
   const users = Object.values(userMeta).sort((a, b) => a.label.localeCompare(b.label));
 
   // Build raw slot buckets
-  // rawSlots[date][userKey][slotIdx] = { count, workCount, rows[] }
+  // rawSlots[date][canonicalKey][slotIdx] = { count, workCount, rows[] }
   const rawSlots = {};
   for (const r of allRows) {
     if (r.minuteOfDay < WH_START || r.minuteOfDay > WH_END) continue;
     if (BG_DOMAINS.has(r.domain) || WPS_RE.test(r.domain)) continue;
     const slotIdx = Math.min(Math.floor((r.minuteOfDay - WH_START) / SLOT_MIN), SLOTS - 1);
+    const ck = canonicalKey[r.userKey] || r.userKey;
     if (!rawSlots[r.date]) rawSlots[r.date] = {};
-    if (!rawSlots[r.date][r.userKey]) rawSlots[r.date][r.userKey] = {};
-    if (!rawSlots[r.date][r.userKey][slotIdx]) rawSlots[r.date][r.userKey][slotIdx] = { count: 0, workCount: 0, rows: [] };
-    rawSlots[r.date][r.userKey][slotIdx].count++;
-    if (WORK_CATS.has(r.cat) || INTERNAL_RE.test(r.domain)) rawSlots[r.date][r.userKey][slotIdx].workCount++;
-    rawSlots[r.date][r.userKey][slotIdx].rows.push(r);
+    if (!rawSlots[r.date][ck]) rawSlots[r.date][ck] = {};
+    if (!rawSlots[r.date][ck][slotIdx]) rawSlots[r.date][ck][slotIdx] = { count: 0, workCount: 0, rows: [] };
+    rawSlots[r.date][ck][slotIdx].count++;
+    if (WORK_CATS.has(r.cat) || INTERNAL_RE.test(r.domain)) rawSlots[r.date][ck][slotIdx].workCount++;
+    rawSlots[r.date][ck][slotIdx].rows.push(r);
   }
 
   // Compute per-slot metrics
@@ -353,18 +365,19 @@ function buildHeatmapData(allRows) {
   }
 
   // Sticky work domains: per user per day, count distinct 10-min slots per domain
-  const domainSlots = {};  // 'date||userKey||domain' → { meta, slotSet }
+  const domainSlots = {};  // 'date||canonicalKey||domain' → { meta, slotSet }
   for (const r of allRows) {
     if (r.minuteOfDay < WH_START || r.minuteOfDay > WH_END) continue;
     if (BG_DOMAINS.has(r.domain) || WPS_RE.test(r.domain)) continue;
     const isWork = WORK_CATS.has(r.cat) || INTERNAL_RE.test(r.domain);
     if (!isWork) continue;
     const slotIdx = Math.min(Math.floor((r.minuteOfDay - WH_START) / SLOT_MIN), SLOTS - 1);
+    const ck = canonicalKey[r.userKey] || r.userKey;
     const domain = r.domain.replace(/^www\./, '');
-    const k = `${r.date}||${r.userKey}||${domain}`;
+    const k = `${r.date}||${ck}||${domain}`;
     if (!domainSlots[k]) {
       domainSlots[k] = {
-        date: r.date, userKey: r.userKey, dept: r.dept, domain,
+        date: r.date, userKey: ck, dept: r.dept, domain,
         platform: INTERNAL_RE.test(r.domain) ? '内网' : '工作外网',
         slotSet: new Set(),
       };
@@ -663,6 +676,22 @@ function renderReport(DATA, meta) {
     if (slot1.workRatio !== 1) { console.error('[TEST FAIL] slot1.workRatio expected 1, got', slot1.workRatio); ok = false; }
   }
   if (ok) console.log('[TEST PASS] buildHeatmapData: slot counts, work ratio, switch detection all correct');
+
+  // Test: same-name merge (two userKeys resolving to same display label = same person, different devices)
+  let mergeOk = true;
+  const mergeRows = [
+    { date:'2026/04/08', time:'9:0', minuteOfDay:540, userKey:'a@x.com', email:'a@x.com', phone:'', name:'张三', dept:'', devId:'device-a', domain:'scrm.wumart.com', cat:'' },
+    { date:'2026/04/08', time:'9:1', minuteOfDay:541, userKey:'device-b', email:'-',       phone:'', name:'张三', dept:'', devId:'device-b', domain:'scrm.wumart.com', cat:'' },
+  ];
+  const MDATA = buildHeatmapData(mergeRows);
+  if (MDATA.users.length !== 1) {
+    console.error('[TEST FAIL] same-name merge: expected 1 user, got', MDATA.users.length); mergeOk = false;
+  } else {
+    const ck = MDATA.users[0].userKey;
+    const ms = MDATA.slots[`2026/04/08||${ck}||2`];  // slot 2 = 09:00 (min 540, offset 60 / 30 = slot 2)
+    if (!ms || ms.count !== 2) { console.error('[TEST FAIL] same-name merge: expected count=2, got', ms?.count); mergeOk = false; }
+  }
+  if (mergeOk) console.log('[TEST PASS] same-name merge: two userKeys with same name merged into one row');
 })();
 
 // ════════════════════════════════════════════════════════════════
