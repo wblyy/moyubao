@@ -94,6 +94,15 @@
   .sticky-table tr:hover td { background: rgba(79,110,247,0.04); }
   .slot-bar { display: inline-block; height: 6px; background: var(--accent); border-radius: 2px; opacity: 0.7; vertical-align: middle; margin-left: 6px; }
 
+  /* ── Ghost User Notice ───────────────────────────────── */
+  .ghost-notice {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+    font-size: 12px; color: #92400e; line-height: 1.6;
+  }
+  .ghost-notice b { font-weight: 600; }
+
   /* ── PDF Export Button ───────────────────────────────── */
   .export-pdf-btn {
     display: inline-flex; align-items: center; gap: 6px;
@@ -131,7 +140,7 @@
   <div class="file-list" id="file-list"></div>
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
   <div id="parse-error"></div>
-  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.2 · 2026-04-23</div>
+  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.3 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing ─────────────────────────────────────── -->
@@ -149,6 +158,8 @@
 <div class="page">
 
   <div class="report-back" id="report-back">← 重新上传</div>
+
+  <div id="ghost-notice" class="ghost-notice" style="display:none"></div>
 
   <div class="report-header">
     <div class="report-title">
@@ -413,7 +424,18 @@ function buildHeatmapData(allRows) {
     .sort((a, b) => b.slotCount - a.slotCount)
     .slice(0, 50);
 
-  return { dates, users, slots, stickyDomains, maxCount, maxSwitches };
+  // Ghost users: appear in CSV but have 0 qualifying working-hours records
+  const seenAll = {};  // userKey → label  (from all rows, before any filter)
+  for (const r of allRows) {
+    if (!seenAll[r.userKey]) seenAll[r.userKey] = resolveLabel(r.userKey, nameMap, phoneMap);
+  }
+  const ghostUsers = Object.entries(seenAll)
+    .filter(([uk]) => !userMeta[uk] && !canonicalKey[uk])
+    .map(([, label]) => label)
+    .filter((v, i, a) => a.indexOf(v) === i)  // dedupe labels
+    .sort();
+
+  return { dates, users, slots, stickyDomains, maxCount, maxSwitches, ghostUsers };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -638,6 +660,16 @@ function renderReport(DATA, meta) {
     : DATA.dates[0] || '—';
   document.getElementById('report-meta').innerHTML =
     `共 <b>${DATA.users.length}</b> 人 · <b>${DATA.dates.length}</b> 天 · ${dateRange} · 总行数 ${meta.totalRows} 条`;
+
+  // Ghost user notice
+  const ghostEl = document.getElementById('ghost-notice');
+  if (DATA.ghostUsers && DATA.ghostUsers.length > 0) {
+    ghostEl.innerHTML = `<b>⚠ 以下人员在 CSV 中有记录，但工作时段（08:00–20:00）内无有效上网数据，未纳入分析：</b>
+      ${DATA.ghostUsers.map(n => `<span style="margin:0 4px;padding:2px 6px;background:#fef3c7;border-radius:4px;">${n}</span>`).join('')}`;
+    ghostEl.style.display = 'block';
+  } else {
+    ghostEl.style.display = 'none';
+  }
 
   // Sticky table (pre-render, shown/hidden by metric)
   renderStickyTable(DATA);
