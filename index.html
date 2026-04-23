@@ -195,6 +195,8 @@
 
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
 
+  <div id="parse-error" style="display:none;margin-top:20px;padding:16px 20px;background:#2a1515;border:1px solid #c0392b;border-radius:10px;color:#e74c3c;font-size:13px;line-height:1.8;max-width:640px;text-align:left;word-break:break-all;"></div>
+
   <div class="upload-note">
     分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
     已内置 WPS 自动同步过滤、系统证书检查过滤。
@@ -905,6 +907,22 @@ document.getElementById('analyze-btn').addEventListener('click', async () => {
     await new Promise(r => setTimeout(r, 50)); // yield to browser
     const text = await selectedFiles[i].text();
     const rows = parseCSV(text);
+    if (rows.length === 0) {
+      // Show inline parse error so user doesn't need F12
+      overlay.classList.remove('active');
+      const errEl = document.getElementById('parse-error');
+      const lines = text.split(/\r?\n/);
+      const headers = lines[0] ? lines[0].split(',').map(h => h.replace(/"/g,'').trim()) : [];
+      const sample = lines[1] ? lines[1].slice(0, 200) : '(空)';
+      errEl.innerHTML = `<b>CSV 解析失败：识别到 0 行数据</b><br><br>
+        <b>文件名：</b>${selectedFiles[i].name}<br>
+        <b>总行数：</b>${lines.length}<br>
+        <b>识别到的列名：</b><code>${headers.join(' | ')}</code><br>
+        <b>第一行数据：</b><code>${sample}</code><br><br>
+        期望列名包含：<code>网站访问时间</code>、<code>所属用户邮箱</code>、<code>设备 ID</code>（ID后有空格）`;
+      errEl.style.display = 'block';
+      return;
+    }
     allRows = allRows.concat(rows);
   }
 
