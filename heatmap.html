@@ -3,20 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>摸鱼宝 · 10分钟粒度分析</title>
+<title>摸鱼宝 · 30分钟粒度分析</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2d3148;
-    --text: #e2e5f1; --muted: #7b82a8; --accent: #4f6ef7;
-    --red: #f05252; --orange: #f97316; --amber: #f59e0b;
-    --green: #22c55e; --purple: #a855f7; --blue: #60a5fa;
+    --bg: #ffffff; --surface: #f4f5fb; --surface2: #eaecf7; --border: #dce0f0;
+    --text: #1a1d2e; --muted: #6b729a; --accent: #4f6ef7;
+    --red: #dc2626; --orange: #ea580c; --amber: #d97706;
+    --green: #16a34a; --purple: #7c3aed; --blue: #2563eb;
   }
   body { background: var(--bg); color: var(--text); font-family: -apple-system,'PingFang SC','Microsoft YaHei',sans-serif; font-size: 14px; line-height: 1.6; min-height: 100vh; }
 
   /* ── Upload ─────────────────────────────────────────── */
   #upload-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 24px; }
-  .upload-logo { font-size: 26px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .upload-logo { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
   .upload-logo span { color: var(--accent); }
   .upload-tagline { color: var(--muted); font-size: 13px; margin-bottom: 32px; }
   .drop-zone { width: 100%; max-width: 540px; border: 2px dashed var(--border); border-radius: 14px; padding: 44px 32px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface); }
@@ -33,8 +33,8 @@
   .file-item .fi-del:hover { color: var(--red); }
   .analyze-btn { margin-top: 18px; padding: 13px 38px; background: var(--accent); border: none; border-radius: 10px; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; display: none; }
   .analyze-btn:hover { opacity: 0.85; }
-  #parse-error { display: none; margin-top: 14px; background: rgba(240,82,82,0.1); border: 1px solid var(--red); border-radius: 8px; padding: 14px 16px; font-size: 12px; color: #fca5a5; line-height: 1.7; max-width: 540px; width: 100%; }
-  #parse-error code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  #parse-error { display: none; margin-top: 14px; background: #fef2f2; border: 1px solid var(--red); border-radius: 8px; padding: 14px 16px; font-size: 12px; color: #7f1d1d; line-height: 1.7; max-width: 540px; width: 100%; }
+  #parse-error code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
 
   /* ── Processing ─────────────────────────────────────── */
   #processing-overlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 14px; }
@@ -45,10 +45,10 @@
   .proc-text { color: var(--muted); font-size: 13px; }
 
   /* ── Tooltip ─────────────────────────────────────────── */
-  .htip { display: none; position: fixed; z-index: 9999; background: #1a1d27; border: 1px solid #3a3f5c; border-radius: 8px; padding: 10px 13px; font-size: 12px; line-height: 1.7; pointer-events: none; max-width: 240px; }
-  .htip b { display: block; font-size: 13px; margin-bottom: 3px; color: #fff; }
-  .htip-row { display: flex; justify-content: space-between; gap: 14px; color: var(--muted); }
-  .htip-row span { color: var(--text); font-weight: 500; }
+  .htip { display: none; position: fixed; z-index: 9999; background: #1e2235; border: 1px solid #3a3f5c; border-radius: 8px; padding: 10px 13px; font-size: 12px; line-height: 1.7; pointer-events: none; max-width: 240px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+  .htip b { display: block; font-size: 13px; margin-bottom: 3px; color: #e2e5f1; }
+  .htip-row { display: flex; justify-content: space-between; gap: 14px; color: #7b82a8; }
+  .htip-row span { color: #e2e5f1; font-weight: 500; }
 
   /* ── Report ──────────────────────────────────────────── */
   #report-view { display: none; }
@@ -56,7 +56,7 @@
   .report-back { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 20px; }
   .report-back:hover { color: var(--text); }
   .report-header { margin-bottom: 28px; }
-  .report-title { font-size: 20px; font-weight: 700; color: #fff; }
+  .report-title { font-size: 20px; font-weight: 700; color: var(--text); }
   .report-title span { color: var(--accent); }
   .report-meta { margin-top: 5px; color: var(--muted); font-size: 12px; }
   .section { margin-bottom: 36px; }
@@ -84,22 +84,20 @@
   .heat-row-name { font-size: 12px; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .heat-row-dept { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .heat-track { display: flex; width: 720px; height: 20px; flex-shrink: 0; border-radius: 2px; overflow: hidden; }
-  .heat-cell { width: 10px; height: 20px; flex-shrink: 0; cursor: pointer; transition: opacity 0.1s; }
-  .heat-cell:hover { opacity: 0.75; outline: 1px solid rgba(255,255,255,0.4); }
+  .heat-cell { width: 30px; height: 20px; flex-shrink: 0; cursor: pointer; transition: opacity 0.1s; border-right: 1px solid rgba(255,255,255,0.15); }
+  .heat-cell:hover { opacity: 0.8; outline: 2px solid rgba(0,0,0,0.3); outline-offset: -1px; }
 
   /* ── Sticky domains table ────────────────────────────── */
   .sticky-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .sticky-table th { text-align: left; padding: 8px 12px; background: var(--surface); color: var(--muted); font-weight: 600; font-size: 11px; border-bottom: 1px solid var(--border); }
-  .sticky-table td { padding: 7px 12px; border-bottom: 1px solid rgba(45,49,72,0.5); }
+  .sticky-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
   .sticky-table tr:hover td { background: rgba(79,110,247,0.04); }
   .slot-bar { display: inline-block; height: 6px; background: var(--accent); border-radius: 2px; opacity: 0.7; vertical-align: middle; margin-left: 6px; }
 
   /* ── Print ───────────────────────────────────────────── */
   @media print {
     * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    body { background: #fff !important; color: #111 !important; }
     #upload-view, #processing-overlay, #parse-error, .report-back, .metric-tabs { display: none !important; }
-    :root { --bg: #fff; --surface: #f5f6fa; --border: #dde0ef; --text: #111; --muted: #666; }
   }
 </style>
 </head>
@@ -107,7 +105,7 @@
 
 <!-- ── Upload View ─────────────────────────────────────── -->
 <div id="upload-view">
-  <div class="upload-logo">摸鱼宝 · <span>10分钟粒度分析</span></div>
+  <div class="upload-logo">摸鱼宝 · <span>30分钟粒度分析</span></div>
   <div class="upload-tagline">by 人 by 天 · 四项行为指标 · 热力图呈现</div>
   <div class="drop-zone" id="drop-zone">
     <div class="drop-icon">📊</div>
@@ -118,7 +116,7 @@
   <div class="file-list" id="file-list"></div>
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
   <div id="parse-error"></div>
-  <div style="margin-top:14px;color:#555;font-size:11px;">v1.0.0 · 2026-04-23</div>
+  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.0 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing ─────────────────────────────────────── -->
@@ -138,7 +136,7 @@
   <div class="report-back" id="report-back">← 重新上传</div>
 
   <div class="report-header">
-    <div class="report-title">摸鱼宝 · <span>10分钟粒度行为分析</span></div>
+    <div class="report-title">摸鱼宝 · <span>30分钟粒度行为分析</span></div>
     <div class="report-meta" id="report-meta"></div>
   </div>
 
@@ -152,7 +150,7 @@
   <div class="legend-wrap" id="legend-wrap"></div>
 
   <div class="section">
-    <div class="section-title">热力图 · 08:00–20:00 · 每格 10 分钟</div>
+    <div class="section-title">热力图 · 08:00–20:00 · 每格 30 分钟（共 24 格）</div>
     <div id="heatmap-wrap"></div>
   </div>
 
@@ -160,7 +158,7 @@
     <div class="section-title">工作时段粘性域名 Top（出现时段数最多）</div>
     <table class="sticky-table">
       <thead><tr>
-        <th>用户</th><th>日期</th><th>域名</th><th>类型</th><th>活跃时段数（×10分钟）</th>
+        <th>用户</th><th>日期</th><th>域名</th><th>类型</th><th>活跃时段数（×30分钟）</th>
       </tr></thead>
       <tbody id="sticky-tbody"></tbody>
     </table>
@@ -188,8 +186,8 @@ const WPS_RE      = /wps\.cn|wpscdn\.cn|kdocs\.cn|docer\.com/i;
 const INTERNAL_RE = /wumart\.com|dmall\.com/i;
 const WH_START = 8 * 60;   // 08:00
 const WH_END   = 20 * 60;  // 20:00
-const SLOT_MIN = 10;        // 10-minute slots
-const SLOTS    = 72;        // (20-8)*60/10
+const SLOT_MIN = 30;        // 30-minute slots
+const SLOTS    = 24;        // (20-8)*60/30
 
 const WEEKDAY = ['日','一','二','三','四','五','六'];
 
@@ -391,35 +389,39 @@ function buildHeatmapData(allRows) {
 //  COLOR FUNCTIONS
 // ════════════════════════════════════════════════════════════════
 function cellColor(metric, slotData, maxCount, maxSwitches) {
-  if (!slotData) return '#0f1117';  // empty cell
+  if (!slotData) return '#eef0f8';  // empty cell — light gray on white bg
   switch (metric) {
     case 'count': {
+      // High contrast: light blue (few URLs) → deep navy (many URLs)
       const intensity = Math.min(slotData.count / Math.max(maxCount, 1), 1);
-      // dark→blue scale
-      const l = Math.round(10 + intensity * 55);
-      return `hsl(213, 80%, ${l}%)`;
+      const l = Math.round(78 - intensity * 52);  // 78% (pale) → 26% (deep)
+      const s = Math.round(55 + intensity * 30);   // 55% → 85%
+      return `hsl(213, ${s}%, ${l}%)`;
     }
     case 'ratio': {
       const ratio = slotData.workRatio;
-      // red(0) → amber(0.5) → green(1)
-      const hue = Math.round(ratio * 120);
-      return `hsl(${hue}, 70%, 38%)`;
+      // High contrast: deep red(0) → amber(0.5) → deep green(1)
+      const hue = Math.round(ratio * 130);
+      const s = Math.round(80 + ratio * 10);        // 80→90%
+      const l = Math.round(42 - ratio * 6 + 12 * (ratio > 0.5 ? ratio - 0.5 : 0));
+      return `hsl(${hue}, ${s}%, ${Math.max(35, Math.min(52, l))}%)`;
     }
     case 'switch': {
-      if (slotData.switches === 0) return slotData.count > 0 ? '#1e2a3a' : '#0f1117';
+      if (slotData.count === 0) return '#eef0f8';
+      if (slotData.switches === 0) return '#dce5f8';  // pale blue = focused, no switching
+      // High contrast purple: light (few switches) → deep violet (many)
       const intensity = Math.min(slotData.switches / Math.max(maxSwitches, 1), 1);
-      const s = Math.round(50 + intensity * 40);
-      const l = Math.round(28 + intensity * 22);
-      return `hsl(270, ${s}%, ${l}%)`;
+      const l = Math.round(72 - intensity * 48);   // 72% (light lavender) → 24% (deep violet)
+      const s = Math.round(60 + intensity * 30);
+      return `hsl(262, ${s}%, ${l}%)`;
     }
     case 'sticky': {
-      // same as ratio but slightly muted
-      if (!slotData || slotData.count === 0) return '#0f1117';
+      if (slotData.count === 0) return '#eef0f8';
       const ratio = slotData.workRatio;
-      const hue = Math.round(ratio * 120);
-      return `hsl(${hue}, 55%, 32%)`;
+      const hue = Math.round(ratio * 130);
+      return `hsl(${hue}, 75%, 44%)`;
     }
-    default: return '#1a1d27';
+    default: return '#f4f5fb';
   }
 }
 
@@ -434,9 +436,9 @@ function renderLegend(metric) {
   const defs = {
     count: {
       type: 'gradient',
-      gradient: 'linear-gradient(to right, hsl(213,80%,10%), hsl(213,80%,65%))',
+      gradient: 'linear-gradient(to right, hsl(213,55%,78%), hsl(213,85%,26%))',
       lo: '0 次', hi: '多次',
-      label: '每 10 分钟 URL 访问量',
+      label: '每 30 分钟 URL 访问量',
     },
     ratio: {
       type: 'gradient',
@@ -446,7 +448,7 @@ function renderLegend(metric) {
     },
     switch: {
       type: 'gradient',
-      gradient: 'linear-gradient(to right, #1e2a3a, hsl(270,90%,50%))',
+      gradient: 'linear-gradient(to right, #dce5f8, hsl(262,90%,24%))',
       lo: '不切换', hi: '频繁切换',
       label: '内网/工作外网/非工作 平台切换次数',
     },
@@ -572,11 +574,11 @@ function renderStickyTable(DATA) {
     return `<tr>
       <td style="font-weight:500">${d.label}</td>
       <td style="color:var(--muted)">${dateStr}</td>
-      <td><code style="font-size:11px;background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px">${d.domain}</code></td>
+      <td><code style="font-size:11px;background:rgba(0,0,0,0.06);padding:1px 5px;border-radius:3px">${d.domain}</code></td>
       <td style="color:${d.platform==='内网'?'var(--green)':'var(--blue)'};">${d.platform}</td>
       <td>
         <span style="color:var(--text);font-weight:600">${d.slotCount}</span>
-        <span style="color:var(--muted);font-size:11px"> 格 ≈ ${d.slotCount*10} 分钟</span>
+        <span style="color:var(--muted);font-size:11px"> 格 ≈ ${d.slotCount*30} 分钟</span>
         <span class="slot-bar" style="width:${barW}px"></span>
       </td>
     </tr>`;
@@ -631,17 +633,17 @@ function renderReport(DATA, meta) {
     const h = Math.floor(minuteOfDay/60), m = minuteOfDay%60;
     return { date, time:`${h}:${m}`, minuteOfDay, userKey, email:userKey, phone:'', name:'', dept:'', devId:'', domain, cat };
   }
-  // 6 rows in slot 0 (08:00-08:10): 3 internal + 3 nonwork → ratio=0.5, switches=1 (or more)
+  // slot 0 (08:00-08:30 = min 480-509): 4 internal + 2 nonwork → ratio=4/6≈0.667, switches=4
+  // slot 1 (08:30-09:00 = min 510-539): 2 internal → ratio=1, switches=0
   const testRows = [
     makeRow(480,'scrm.wumart.com',''),         // internal
     makeRow(481,'scrm.wumart.com',''),         // internal
-    makeRow(482,'douyin.com','娱乐'),          // nonwork
-    makeRow(483,'scrm.wumart.com',''),         // internal → switch nonwork→internal
+    makeRow(482,'douyin.com','娱乐'),          // nonwork → switch
+    makeRow(483,'scrm.wumart.com',''),         // internal → switch
     makeRow(484,'douyin.com','娱乐'),          // nonwork → switch
-    makeRow(485,'scrm.wumart.com',''),         // internal → switch
-    // slot 1 (08:10-08:20): 2 work-external
-    makeRow(490,'doc.wumart.com','技术与计算'), // work
-    makeRow(491,'doc.wumart.com','技术与计算'), // work
+    makeRow(485,'scrm.wumart.com',''),         // internal → switch (4 total)
+    makeRow(510,'doc.wumart.com','技术与计算'), // slot 1 - work
+    makeRow(511,'doc.wumart.com','技术与计算'), // slot 1 - work
   ];
   const DATA = buildHeatmapData(testRows);
   const slot0 = DATA.slots['2026/04/07||u1||0'];
