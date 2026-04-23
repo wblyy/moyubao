@@ -175,6 +175,37 @@
   @media (max-width: 700px) {
     .kpi-row { grid-template-columns: repeat(2,1fr); }
   }
+
+  /* ── Print / PDF ─────────────────────────────── */
+  @media print {
+    * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    body { background: #fff !important; color: #111 !important; font-size: 12px; }
+    #upload-view, #processing-overlay, #parse-error,
+    .report-back, #export-pdf-btn, .filter-row { display: none !important; }
+    #report-view { display: block !important; }
+    .page { max-width: 100%; padding: 0; }
+    :root {
+      --bg: #fff; --surface: #f5f6fa; --surface2: #ebebf0; --border: #dde0ec;
+      --text: #111; --muted: #555; --accent: #3b5bdb;
+      --red: #c0392b; --orange: #c0550a; --amber: #b7860a;
+      --green: #1a7a34; --purple: #7c3aed; --blue: #1d6fa4; --gray: #555;
+    }
+    .header { border-bottom: 1px solid #dde0ec; padding-bottom: 10px; margin-bottom: 14px; }
+    .header-title { color: #111 !important; }
+    .header-title span { color: #3b5bdb !important; }
+    .section { page-break-inside: avoid; margin-bottom: 18px; }
+    .kpi-card { background: #f5f6fa !important; border: 1px solid #dde0ec !important; page-break-inside: avoid; }
+    .kpi-val { color: #111 !important; }
+    .kpi-val.orange { color: #c0550a !important; }
+    .kpi-val.red { color: #c0392b !important; }
+    .day-card { background: #f5f6fa !important; border: 1px solid #dde0ec !important; }
+    .session-table th, .session-table td { color: #111 !important; border-color: #dde0ec !important; }
+    .offender-row { background: #f5f6fa !important; border: 1px solid #dde0ec !important; }
+    .verdict-badge { background: #ebebf0 !important; color: #111 !important; }
+    .gantt-wrap { page-break-inside: avoid; }
+    .gantt-bar { page-break-inside: avoid; }
+    .footnote { margin-top: 16px; font-size: 11px; color: #555; border-top: 1px solid #dde0ec; padding-top: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -201,7 +232,7 @@
     分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
     已内置 WPS 自动同步过滤、系统证书检查过滤。
   </div>
-  <div style="margin-top:12px;color:#555;font-size:11px;">v2.2.0 · 2026-04-23</div>
+  <div style="margin-top:12px;color:#555;font-size:11px;">v2.3.0 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing Overlay ───────────────────────────────── -->
@@ -218,7 +249,10 @@
 <div id="report-view">
 <div class="page">
 
-  <div class="report-back" id="report-back">← 重新上传</div>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+    <div class="report-back" id="report-back" style="margin-bottom:0;">← 重新上传</div>
+    <button id="export-pdf-btn" onclick="window.print()" style="padding:6px 16px;background:rgba(79,110,247,0.15);border:1px solid rgba(79,110,247,0.4);border-radius:8px;color:#4f6ef7;font-size:13px;cursor:pointer;font-family:inherit;">⬇ 导出 PDF</button>
+  </div>
 
   <div class="header">
     <div class="header-title">摸鱼宝 · <span>行为级摸鱼分析</span></div>
@@ -588,6 +622,33 @@ function detectGaps(rows, phoneMap, isLunch) {
 // ════════════════════════════════════════════════════════════════
 //  BUILD FULL DATA OBJECT
 // ════════════════════════════════════════════════════════════════
+// Build work-activity segments (consecutive work-category rows within gap tolerance)
+function buildWorkSegments(allRows, phoneMap) {
+  const GAP = 30; // collapse work rows within 30-min gap into one segment
+  const groups = {};
+  for (const r of allRows) {
+    if (!WORK_CATS.has(r.cat) && !INTERNAL_RE.test(r.domain)) continue; // only work rows
+    if (r.minuteOfDay < WH_START || r.minuteOfDay > WH_END) continue;
+    const k = r.userKey + '||' + r.date;
+    if (!groups[k]) groups[k] = { userKey: r.userKey, date: r.date, dept: r.dept, rows: [] };
+    groups[k].rows.push(r);
+  }
+  const segs = [];
+  for (const g of Object.values(groups)) {
+    g.rows.sort((a, b) => a.minuteOfDay - b.minuteOfDay);
+    let cur = null;
+    for (const r of g.rows) {
+      if (!cur) { cur = { startMin: r.minuteOfDay, endMin: r.minuteOfDay }; continue; }
+      if (r.minuteOfDay - cur.endMin <= GAP) { cur.endMin = r.minuteOfDay; }
+      else { segs.push({ ...cur, userKey: g.userKey, date: g.date, dept: g.dept }); cur = { startMin: r.minuteOfDay, endMin: r.minuteOfDay }; }
+    }
+    if (cur) segs.push({ ...cur, userKey: g.userKey, date: g.date, dept: g.dept });
+  }
+  // Attach resolved labels
+  return segs.map(s => ({ ...s, label: resolveLabel(s.userKey, phoneMap),
+    startTime: minToHM(s.startMin), endTime: minToHM(s.endMin), durMin: s.endMin - s.startMin }));
+}
+
 function buildData(allRows) {
   const phoneMap    = buildPhoneMap(allRows);
   const rawSessions = detectSessions(allRows, phoneMap);
@@ -596,6 +657,7 @@ function buildData(allRows) {
   const topOffenders= buildTopOffenders(sessions);
   const anomalyGaps = detectGaps(allRows, phoneMap, false);
   const lunchGaps   = detectGaps(allRows, phoneMap, true);
+  const workSegments= buildWorkSegments(allRows, phoneMap);
 
   const pureCount  = sessions.filter(s => VERDICTS[s.verdict]?.cls === 'pure').length;
   const mixedCount = sessions.filter(s => ['mixed','mostly'].includes(VERDICTS[s.verdict]?.cls)).length;
@@ -615,7 +677,7 @@ function buildData(allRows) {
       pureMoyu: pureCount, mixedWork: mixedCount, falsePositive: fpCount,
       champMin, champLabel, anomalyGaps: anomalyGaps.length, lunchGaps: lunchGaps.length,
     },
-    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps,
+    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps, workSegments,
     meta: { dateRange, userCount, fileCount: 1 },
   };
 }
@@ -754,22 +816,28 @@ function renderGantt(DATA) {
   const toPct = min => Math.max(0,Math.min(100,(min-GSTART)/SPAN*100));
   const hmToMin = hm => { const [h,m]=hm.split(':').map(Number); return h*60+m; };
 
-  const dates = [...new Set([...DATA.sessions,...DATA.anomalyGaps].map(x=>x.date))].sort();
+  const dates = [...new Set([...DATA.sessions,...DATA.anomalyGaps,...DATA.workSegments].map(x=>x.date))].sort();
   const weekends = new Set(DATA.daySummary.filter(d=>d.weekday==='周六'||d.weekday==='周日').map(d=>d.date));
   const dateLabels = {};
   DATA.daySummary.forEach(d => { dateLabels[d.date] = d.date.slice(5)+' '+d.weekday; });
 
   const byDate = {};
+  const initUser = (date, uKey, label, dept) => {
+    if (!byDate[date]) byDate[date]={};
+    if (!byDate[date][uKey]) byDate[date][uKey]={label,dept,sessions:[],gaps:[],workSegs:[]};
+  };
   DATA.sessions.forEach(s => {
-    if (!byDate[s.date]) byDate[s.date]={};
-    if (!byDate[s.date][s.userKey]) byDate[s.date][s.userKey]={label:s.label,dept:s.dept,sessions:[],gaps:[]};
+    initUser(s.date, s.userKey, s.label, s.dept);
     byDate[s.date][s.userKey].sessions.push(s);
   });
   DATA.anomalyGaps.forEach(g => {
     const uKey = DATA.sessions.find(s=>s.label===g.label)?.userKey || g.userKey || g.label;
-    if (!byDate[g.date]) byDate[g.date]={};
-    if (!byDate[g.date][uKey]) byDate[g.date][uKey]={label:g.label,dept:g.dept,sessions:[],gaps:[]};
+    initUser(g.date, uKey, g.label, g.dept);
     byDate[g.date][uKey].gaps.push(g);
+  });
+  DATA.workSegments.forEach(w => {
+    initUser(w.date, w.userKey, w.label, w.dept);
+    byDate[w.date][w.userKey].workSegs.push(w);
   });
 
   const tip = document.getElementById('gtip');
@@ -780,10 +848,10 @@ function renderGantt(DATA) {
     tip.style.left=x+'px'; tip.style.top=y+'px';
   });
 
-  const LEGEND_COLORS = {pure:'#c0392b',mixed:'#d67c1c',mostly:'#c49b0a',fp:'#1a7a40',offhours:'#7c3aed',sso:'#374151',gap:'#7a6010'};
+  const LEGEND_COLORS = {work:'#1a6b3a',pure:'#c0392b',mixed:'#d67c1c',mostly:'#c49b0a',fp:'#1a7a40',offhours:'#7c3aed',sso:'#374151',gap:'#7a6010'};
   document.getElementById('gantt-legend').innerHTML = Object.entries({
-    pure:'纯摸鱼',mixed:'边工作边摸鱼',mostly:'偶尔工作',fp:'实为工作',offhours:'凌晨异常',sso:'系统后台',gap:'异常离网',
-  }).map(([k,v])=>`<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${LEGEND_COLORS[k]}"></div><span>${v}</span></div>`).join('');
+    work:'工作时段',pure:'纯摸鱼',mixed:'边工作边摸鱼',mostly:'偶尔工作',fp:'实为工作',offhours:'凌晨异常',sso:'系统后台',gap:'异常离网',
+  }).map(([k,v])=>`<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${LEGEND_COLORS[k]}${k==='work'?';opacity:0.6':''}"></div><span>${v}</span></div>`).join('');
 
   function buildAxis() {
     let h='<div class="gantt-axis">';
@@ -807,6 +875,15 @@ function renderGantt(DATA) {
     users.forEach(uKey => {
       const row = byDate[date][uKey];
       let bars = '';
+      // Work segments rendered first (bottom layer, subdued green)
+      row.workSegs.forEach(w => {
+        const s=hmToMin(w.startTime), e=hmToMin(w.endTime);
+        const cs=Math.max(s,GSTART), ce=Math.min(e,GEND);
+        if (ce<=cs) return;
+        const left=toPct(cs), width=(ce-cs)/SPAN*100;
+        bars += `<div class="gantt-bar" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;background:#1a6b3a;opacity:0.55;top:6px;height:8px;" data-tip="${encodeURIComponent(`<b>${w.label} 工作</b><div class=\"gtip-row\">时间：<span>${w.startTime}–${w.endTime}</span></div><div class=\"gtip-row\">时长：<span>${w.durMin}分钟</span></div>`)}"></div>`;
+      });
+      // Moyu session bars (top layer)
       row.sessions.forEach(s => {
         const cls = VERDICTS[s.verdict]?.cls||'fp';
         const sigs = s.workSignals.length ? s.workSignals.map(x=>x.replace(/\(.*\)/,'')).join(', ') : '无';
