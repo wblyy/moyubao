@@ -201,7 +201,7 @@
     分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
     已内置 WPS 自动同步过滤、系统证书检查过滤。
   </div>
-  <div style="margin-top:12px;color:#555;font-size:11px;">v2.1.0 · 2026-04-23</div>
+  <div style="margin-top:12px;color:#555;font-size:11px;">v2.2.0 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing Overlay ───────────────────────────────── -->
@@ -346,7 +346,9 @@ function parseCSV(text) {
 }
 
 function normalizeRow(raw, dbg) {
-  const timeStr = raw['网站访问时间'] || '';
+  // Support both old format (网站访问时间/所属用户邮箱/设备 ID) and
+  // new format (访问时间/用户账号/设备名称) from 飞连 exports
+  const timeStr = raw['网站访问时间'] || raw['访问时间'] || '';
   const spaceIdx = timeStr.lastIndexOf(' ');
   if (spaceIdx < 0) { if (dbg) dbg.noSpace++; return null; }
   const date = timeStr.slice(0, spaceIdx);   // "2026/04/17"
@@ -355,16 +357,17 @@ function normalizeRow(raw, dbg) {
   if (isNaN(h) || isNaN(m)) { if (dbg) dbg.badTime++; return null; }
   const minuteOfDay = h * 60 + m;
 
-  const email  = raw['所属用户邮箱'] || '';
-  const phone  = raw['所属用户手机号'] || '';
-  const dept   = (raw['所属部门'] || '').split('/').slice(-2).join('/');
-  const devId  = raw['设备 ID'] || '';
-  const domain = raw['域名地址'] || '';
+  const email  = raw['所属用户邮箱'] || raw['用户账号'] || '';
+  const phone  = raw['所属用户手机号'] || raw['手机号'] || '';
+  const name   = raw['姓名'] || '';
+  const dept   = (raw['所属部门'] || raw['所属组织'] || '').split('/').slice(-2).join('/');
+  const devId  = raw['设备 ID'] || raw['设备名称'] || '';
+  const domain = raw['域名地址'] || raw['访问地址'] || '';
   const cat    = raw['网站分类'] || '';
   const userKey = (email && email !== '-') ? email : devId;
   if (!userKey) { if (dbg) dbg.noUserKey++; return null; }
 
-  return { date, time, minuteOfDay, userKey, email, phone, dept, devId, domain, cat };
+  return { date, time, minuteOfDay, userKey, email, phone, name, dept, devId, domain, cat };
 }
 
 // ════════════════════════════════════════════════════════════════
