@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>摸鱼宝 · 行为分析工具</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a; --border: #2d3148;
+    --text: #e2e5f1; --muted: #7b82a8; --accent: #4f6ef7;
+    --red: #f05252; --orange: #f97316; --amber: #f59e0b;
+    --green: #22c55e; --purple: #a855f7; --blue: #60a5fa; --gray: #64748b;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,'PingFang SC','Microsoft YaHei',sans-serif; font-size: 14px; line-height: 1.6; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ── Upload View ─────────────────────────────── */
+  #upload-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 24px; }
+  .upload-logo { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .upload-logo span { color: var(--accent); }
+  .upload-tagline { color: var(--muted); font-size: 14px; margin-bottom: 36px; }
+  .drop-zone {
+    width: 100%; max-width: 560px; border: 2px dashed var(--border);
+    border-radius: 14px; padding: 48px 32px; text-align: center;
+    cursor: pointer; transition: all 0.2s; background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(79,110,247,0.05); }
+  .drop-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
+  .drop-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .drop-sub { font-size: 13px; color: var(--muted); }
+  .drop-sub b { color: var(--text); }
+  #file-input { display: none; }
+  .file-list { width: 100%; max-width: 560px; margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .file-item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-size: 13px;
+  }
+  .file-item .fi-name { flex: 1; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-item .fi-size { color: var(--muted); flex-shrink: 0; }
+  .file-item .fi-del { color: var(--muted); cursor: pointer; flex-shrink: 0; font-size: 16px; line-height: 1; }
+  .file-item .fi-del:hover { color: var(--red); }
+  .analyze-btn {
+    margin-top: 20px; padding: 14px 40px; background: var(--accent);
+    border: none; border-radius: 10px; color: #fff; font-size: 15px;
+    font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    display: none;
+  }
+  .analyze-btn:hover { opacity: 0.85; }
+  .upload-note { margin-top: 16px; font-size: 12px; color: var(--muted); text-align: center; max-width: 480px; }
+
+  /* ── Processing overlay ──────────────────────── */
+  #processing-overlay {
+    display: none; position: fixed; inset: 0; background: var(--bg);
+    z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+  }
+  #processing-overlay.active { display: flex; }
+  .proc-spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .proc-text { color: var(--muted); font-size: 14px; }
+  .proc-step { color: var(--text); font-size: 16px; font-weight: 600; }
+
+  /* ── Report View ─────────────────────────────── */
+  #report-view { display: none; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+  .report-back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 24px; }
+  .report-back:hover { color: var(--text); }
+  .header { margin-bottom: 40px; }
+  .header-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: #fff; }
+  .header-title span { color: var(--accent); }
+  .header-meta { margin-top: 6px; color: var(--muted); font-size: 13px; }
+  .header-meta b { color: var(--text); font-weight: 500; }
+  .section { margin-bottom: 40px; }
+  .section-title { font-size: 12px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+
+  /* KPI */
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+  .kpi-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .kpi-value { font-size: 28px; font-weight: 700; color: #fff; line-height: 1; }
+  .kpi-value.red { color: var(--red); } .kpi-value.orange { color: var(--orange); } .kpi-value.amber { color: var(--amber); }
+  .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Day chart */
+  .day-grid { display: grid; gap: 8px; }
+  .day-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 10px; text-align: center; }
+  .day-card.weekend { border-color: #2a2040; background: #16131f; }
+  .day-card .day-label { font-size: 11px; color: var(--muted); }
+  .day-card .day-date { font-size: 13px; font-weight: 600; color: var(--text); margin: 2px 0 8px; }
+  .day-card.weekend .day-date { color: var(--muted); }
+  .bar-wrap { height: 60px; display: flex; align-items: flex-end; justify-content: center; gap: 4px; margin-bottom: 8px; }
+  .bar { width: 18px; border-radius: 3px 3px 0 0; }
+  .bar.requests { background: var(--surface2); } .bar.moyu { background: var(--red); opacity: 0.8; }
+  .day-stat { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .day-stat b { color: var(--text); } .day-stat .moyu-min { color: var(--red); font-weight: 600; }
+
+  /* Session table */
+  .filter-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filter-btn { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(79,110,247,0.1); }
+  .session-table { width: 100%; border-collapse: collapse; }
+  .session-table th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .session-table td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid rgba(45,49,72,0.5); vertical-align: middle; }
+  .session-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .session-table tr.hidden { display: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .badge.pure    { background: rgba(240,82,82,0.15); color: var(--red); }
+  .badge.mixed   { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .badge.mostly  { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .badge.fp      { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge.offhours{ background: rgba(168,85,247,0.15); color: var(--purple); }
+  .badge.sso     { background: rgba(100,116,139,0.15); color: var(--muted); }
+  .dur-wrap { display: flex; align-items: center; gap: 8px; }
+  .dur-bar { height: 4px; border-radius: 2px; background: var(--accent); opacity: 0.6; }
+  .dur-text { color: var(--muted); white-space: nowrap; }
+  .signals { display: flex; flex-wrap: wrap; gap: 4px; }
+  .signal-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(79,110,247,0.1); color: #93a8f7; border: 1px solid rgba(79,110,247,0.2); }
+  .signal-tag.internal { background: rgba(34,197,94,0.08); color: #4ade80; border-color: rgba(34,197,94,0.2); }
+  .signal-tag.ai       { background: rgba(168,85,247,0.08); color: #c084fc; border-color: rgba(168,85,247,0.2); }
+
+  /* Offender list */
+  .offender-list { display: flex; flex-direction: column; gap: 8px; }
+  .offender-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .offender-rank { width: 24px; height: 24px; border-radius: 50%; background: var(--surface2); color: var(--muted); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .offender-rank.top { background: rgba(249,115,22,0.2); color: var(--orange); }
+  .offender-info { flex: 1; min-width: 0; }
+  .offender-name { font-weight: 600; font-size: 14px; }
+  .offender-dept { font-size: 12px; color: var(--muted); }
+  .offender-bars { flex: 2; }
+  .offender-bar-bg { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .offender-bar-fill { height: 100%; border-radius: 3px; background: var(--orange); }
+  .offender-stats { text-align: right; flex-shrink: 0; }
+  .offender-min { font-size: 16px; font-weight: 700; color: var(--orange); }
+  .offender-sessions { font-size: 11px; color: var(--muted); }
+
+  /* Anomaly gap list */
+  .gap-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+  .gap-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--amber); border-radius: 6px; padding: 10px 14px; }
+  .gap-card .gap-who { font-weight: 600; font-size: 13px; }
+  .gap-card .gap-dept { font-size: 11px; color: var(--muted); }
+  .gap-card .gap-time { font-size: 12px; color: var(--amber); margin-top: 4px; }
+  .gap-card .gap-dur  { font-size: 11px; color: var(--muted); }
+
+  /* Gantt */
+  .gantt-wrap { overflow-x: auto; }
+  .gantt-day-header { display: flex; align-items: center; gap: 10px; padding: 8px 0 4px; border-top: 1px solid var(--border); margin-top: 6px; }
+  .gantt-day-header:first-child { margin-top: 0; border-top: none; }
+  .gantt-day-label { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.5px; width: 170px; flex-shrink: 0; text-align: right; padding-right: 12px; }
+  .gantt-day-label.weekend { color: #4a3d6b; }
+  .gantt-axis { position: relative; flex: 1; min-width: 500px; height: 16px; }
+  .gantt-axis-tick { position: absolute; font-size: 10px; color: #3a3d58; transform: translateX(-50%); }
+  .gantt-row { display: flex; align-items: center; height: 28px; }
+  .gantt-row-label { width: 170px; flex-shrink: 0; display: flex; align-items: center; padding-right: 12px; justify-content: flex-end; }
+  .gantt-row-label .gl-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .gantt-row-label .gl-dept { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; margin-left: 4px; }
+  .gantt-track { position: relative; flex: 1; min-width: 500px; height: 20px; background: #12141f; border-radius: 3px; }
+  .gantt-bar { position: absolute; top: 2px; height: 16px; border-radius: 3px; cursor: pointer; transition: opacity 0.1s; }
+  .gantt-bar:hover { opacity: 0.75; }
+  .gantt-bar.pure    { background: #c0392b; } .gantt-bar.mixed   { background: #d67c1c; }
+  .gantt-bar.mostly  { background: #c49b0a; } .gantt-bar.fp      { background: #1a7a40; }
+  .gantt-bar.offhours{ background: #7c3aed; } .gantt-bar.sso     { background: #374151; }
+  .gantt-bar.gap     { background: #7a6010; border: 1px dashed #f59e0b; }
+  .gantt-bar-label { position: absolute; top: 50%; transform: translateY(-50%); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.9); pointer-events: none; left: 4px; white-space: nowrap; }
+  .gtip { position: fixed; z-index: 9999; background: #1e2134; border: 1px solid #3a3d5a; border-radius: 6px; padding: 10px 14px; font-size: 12px; pointer-events: none; max-width: 260px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: none; }
+  .gtip b { color: #fff; } .gtip .gtip-row { color: var(--muted); margin-top: 2px; } .gtip .gtip-row span { color: var(--text); }
+  .gantt-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; font-size: 11px; color: var(--muted); }
+  .gantt-legend-item { display: flex; align-items: center; gap: 5px; }
+  .gantt-legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Footnote */
+  .footnote { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.8; }
+  .footnote b { color: var(--text); }
+
+  @media (max-width: 700px) {
+    .kpi-row { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Upload View ──────────────────────────────────────── -->
+<div id="upload-view">
+  <div class="upload-logo">摸鱼宝 · <span>行为分析工具</span></div>
+  <div class="upload-tagline">上传飞连终端上网管控报表，自动识别摸鱼行为</div>
+
+  <div class="drop-zone" id="drop-zone">
+    <div class="drop-icon">📂</div>
+    <div class="drop-title">拖拽 CSV 文件到这里，或点击选择</div>
+    <div class="drop-sub">支持多文件合并分析 · 文件仅在浏览器本地处理，不上传服务器<br><b>格式：</b>飞连「终端上网管控报表」导出的 CSV</div>
+    <input type="file" id="file-input" accept=".csv" multiple>
+  </div>
+
+  <div class="file-list" id="file-list"></div>
+
+  <button class="analyze-btn" id="analyze-btn">开始分析</button>
+
+  <div class="upload-note">
+    分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
+    已内置 WPS 自动同步过滤、系统证书检查过滤。
+  </div>
+</div>
+
+<!-- ── Processing Overlay ───────────────────────────────── -->
+<div id="processing-overlay">
+  <div class="proc-spinner"></div>
+  <div class="proc-step" id="proc-step">正在解析 CSV…</div>
+  <div class="proc-text" id="proc-text">请稍候</div>
+</div>
+
+<!-- ── Tooltip ──────────────────────────────────────────── -->
+<div class="gtip" id="gtip"></div>
+
+<!-- ── Report View ──────────────────────────────────────── -->
+<div id="report-view">
+<div class="page">
+
+  <div class="report-back" id="report-back">← 重新上传</div>
+
+  <div class="header">
+    <div class="header-title">摸鱼宝 · <span>行为级摸鱼分析</span></div>
+    <div class="header-meta" id="report-meta"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">总览</div>
+    <div class="kpi-row" id="kpi-row"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">每日概览</div>
+    <div class="day-grid" id="day-grid"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">摸鱼会话明细</div>
+    <div class="filter-row" id="filter-row"></div>
+    <table class="session-table">
+      <thead><tr>
+        <th>用户</th><th>部门</th><th>时间</th><th>时长</th><th>判定</th><th>工作信号</th>
+      </tr></thead>
+      <tbody id="session-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">累计摸鱼排行</div>
+    <div class="offender-list" id="offender-list"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">摸鱼时段甘特图 · 08:00–20:00</div>
+    <div class="gantt-legend" id="gantt-legend"></div>
+    <div class="gantt-wrap" id="gantt-wrap"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">异常离网（工作时段内断网 ≥30分钟）</div>
+    <div class="gap-list" id="gap-list"></div>
+  </div>
+
+  <div class="footnote">
+    <b>方法说明</b><br>
+    摸鱼会话 = 工作时段内连续 ≥30 分钟仅访问非工作类域名。<br>
+    <b>后台噪声</b>已过滤：WPS 自动同步突发（同一分钟 ≥5 个 WPS 子域名）、系统证书检查（c.pki.goog 等）。<br>
+    <b>工作信号</b>：内网工具（*.dmall.com / *.wumart.com）、AI 工具（doubao 等）。<br>
+    <b>判定逻辑</b>：内网工具 ≥4 次 → 实为工作（误判）；内网工具 ≥2 次 → 边工作边摸鱼；仅 1 次 → 主要摸鱼偶尔工作。
+  </div>
+
+</div>
+</div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ════════════════════════════════════════════════════════════════
+const WORK_CATS = new Set([
+  '生成式人工智能','技术与计算','职业','商业','科学','法律、政府和政治',
+]);
+const BG_DOMAINS = new Set([
+  'c.pki.goog','updateleak.qihucdn.com','lenovomm.com','lenovo.com.cn',
+  'sangfor.com.cn','dbankcdn.com','dbankcdn.cn','voipstunt.com',
+  'cloudflare-dns.com','sslvpn.wumart.com','kflow-idle.wpscdn.cn',
+  'msftncsi.com','sfx.ms','configdownload.dbankcdn.cn',
+]);
+const WPS_RE      = /wps\.cn|wpscdn\.cn|kdocs\.cn|docer\.com/i;
+const INTERNAL_RE = /wumart\.com|dmall\.com/i;
+const AI_RE       = /doubao\.com|kimi\.ai|tongyi\.aliyun|deepseek\.com/i;
+const WH_START = 8 * 60;   // 08:00
+const WH_END   = 20 * 60;  // 20:00
+const MIN_SESSION = 30;
+const MAX_SESSION_GAP = 30;   // max silence between non-work rows within one session
+
+const WEEKDAY = ['日','一','二','三','四','五','六'];
+const VERDICTS = {
+  '纯摸鱼（无主动工作迹象）': { cls:'pure',    label:'纯摸鱼' },
+  '边工作边摸鱼':              { cls:'mixed',   label:'边工作边摸鱼' },
+  '主要摸鱼，偶尔工作':        { cls:'mostly',  label:'偶尔工作' },
+  '实为工作（误判）':          { cls:'fp',      label:'实为工作' },
+  '非工时异常（凌晨）':        { cls:'offhours',label:'凌晨异常' },
+  '疑似系统后台（SSO自动续期）':{ cls:'sso',    label:'系统后台' },
+};
+
+// ════════════════════════════════════════════════════════════════
+//  CSV PARSER
+// ════════════════════════════════════════════════════════════════
+function parseLine(line) {
+  const res = []; let cur = '', inQ = false;
+  for (const ch of line) {
+    if (ch === '"') inQ = !inQ;
+    else if (ch === ',' && !inQ) { res.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  res.push(cur);
+  return res;
+}
+
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const lines = text.split(/\r?\n/);
+  const headers = parseLine(lines[0]).map(h => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const vals = parseLine(lines[i]);
+    const raw = {};
+    headers.forEach((h, j) => { raw[h] = (vals[j] || '').trim(); });
+    const r = normalizeRow(raw);
+    if (r) rows.push(r);
+  }
+  return rows;
+}
+
+function normalizeRow(raw) {
+  const timeStr = raw['网站访问时间'] || '';
+  const spaceIdx = timeStr.lastIndexOf(' ');
+  if (spaceIdx < 0) return null;
+  const date = timeStr.slice(0, spaceIdx);   // "2026/04/17"
+  const time = timeStr.slice(spaceIdx + 1);  // "17:51"
+  const [h, m] = time.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  const minuteOfDay = h * 60 + m;
+
+  const email  = raw['所属用户邮箱'] || '';
+  const phone  = raw['所属用户手机号'] || '';
+  const dept   = (raw['所属部门'] || '').split('/').slice(-2).join('/');
+  const devId  = raw['设备 ID'] || '';
+  const domain = raw['域名地址'] || '';
+  const cat    = raw['网站分类'] || '';
+  const userKey = (email && email !== '-') ? email : devId;
+  if (!userKey) return null;
+
+  return { date, time, minuteOfDay, userKey, email, phone, dept, devId, domain, cat };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PHONE MAP
+// ════════════════════════════════════════════════════════════════
+function buildPhoneMap(rows) {
+  const map = {};
+  for (const r of rows) {
+    if (!r.phone || r.phone === '-') continue;
+    if (r.email && r.email !== '-') map[r.email] = r.phone;
+    if (r.devId && r.devId !== '-') map[r.devId]  = r.phone;
+  }
+  return map;
+}
+
+function resolveLabel(userKey, phoneMap) {
+  if (phoneMap[userKey]) return phoneMap[userKey];
+  return userKey.includes('@') ? userKey.split('@')[0] + '@' : userKey.slice(0, 8);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  HELPER: min → "HH:MM"
+// ════════════════════════════════════════════════════════════════
+function minToHM(m) {
+  const h = Math.floor(m / 60), mm = m % 60;
+  return String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SESSION DETECTION
+// ════════════════════════════════════════════════════════════════
+function detectSessions(rows, phoneMap) {
+  // Group by userKey + date
+  const groups = {};
+  for (const r of rows) {
+    const k = r.userKey + '||' + r.date;
+    if (!groups[k]) groups[k] = { userKey: r.userKey, date: r.date, dept: r.dept, rows: [] };
+    groups[k].rows.push(r);
+  }
+
+  const sessions = [];
+
+  for (const g of Object.values(groups)) {
+    g.rows.sort((a, b) => a.minuteOfDay - b.minuteOfDay);
+
+    // WPS burst: count WPS subdomains per minute
+    const wpsByMin = {};
+    for (const r of g.rows) {
+      if (WPS_RE.test(r.domain)) wpsByMin[r.minuteOfDay] = (wpsByMin[r.minuteOfDay]||0)+1;
+    }
+    const wpsBurst = new Set(Object.keys(wpsByMin).filter(m => wpsByMin[m] >= 5).map(Number));
+
+    let cur = null; // { startMin, endMin, sessionRows[] }
+
+    const flush = () => {
+      if (!cur) return;
+      const dur = cur.endMin - cur.startMin;
+      if (dur >= MIN_SESSION) {
+        sessions.push({
+          userKey: g.userKey, dept: g.dept, date: g.date,
+          startMin: cur.startMin, endMin: cur.endMin, durMin: dur,
+          sessionRows: cur.rows,
+        });
+      }
+      cur = null;
+    };
+
+    for (const r of g.rows) {
+      if (BG_DOMAINS.has(r.domain)) continue;
+      if (wpsBurst.has(r.minuteOfDay) && WPS_RE.test(r.domain)) continue;
+
+      // Internal company domains (empty category but real work) also break sessions
+      const isWork = WORK_CATS.has(r.cat) || INTERNAL_RE.test(r.domain);
+      if (isWork) { flush(); continue; }
+
+      // Non-work row
+      if (!cur) {
+        cur = { startMin: r.minuteOfDay, endMin: r.minuteOfDay, rows: [r] };
+      } else if (r.minuteOfDay - cur.endMin > MAX_SESSION_GAP) {
+        flush();
+        cur = { startMin: r.minuteOfDay, endMin: r.minuteOfDay, rows: [r] };
+      } else {
+        cur.endMin = r.minuteOfDay;
+        cur.rows.push(r);
+      }
+    }
+    flush();
+  }
+
+  return sessions;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VERDICT CLASSIFICATION
+// ════════════════════════════════════════════════════════════════
+function classifySession(s, phoneMap) {
+  const { userKey, dept, date, startMin, endMin, durMin, sessionRows } = s;
+
+  const internalDomains = new Set();
+  const aiDomains       = new Set();
+  for (const r of sessionRows) {
+    if (INTERNAL_RE.test(r.domain)) internalDomains.add(r.domain.replace(/^www\./,''));
+    if (AI_RE.test(r.domain))       aiDomains.add(r.domain.replace(/^www\./,''));
+  }
+  const internalCnt = internalDomains.size;
+  const aiCnt       = aiDomains.size;
+  const nonworkCnt  = sessionRows.filter(r => !WORK_CATS.has(r.cat)).length;
+
+  const workSignals = [
+    ...[...internalDomains].map(d => `${d}(内网工具)`),
+    ...[...aiDomains].map(d => `${d}(AI工具)`),
+  ];
+
+  const isOffHours = startMin < 7 * 60;
+  const isSSOLong  = [...internalDomains].some(d => d.includes('sso.dmall.com')) && durMin > 100;
+
+  let verdict;
+  if (isOffHours)       verdict = '非工时异常（凌晨）';
+  else if (isSSOLong)   verdict = '疑似系统后台（SSO自动续期）';
+  else if (internalCnt >= 4 && nonworkCnt <= 5) verdict = '实为工作（误判）';
+  else if (internalCnt >= 2 || (aiCnt >= 1 && nonworkCnt >= 3)) verdict = '边工作边摸鱼';
+  else if (internalCnt === 1) verdict = '主要摸鱼，偶尔工作';
+  else verdict = '纯摸鱼（无主动工作迹象）';
+
+  const label = resolveLabel(userKey, phoneMap);
+  return {
+    userKey, label, dept, date,
+    start: minToHM(startMin), end: minToHM(endMin), durMin, verdict, workSignals,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DAY SUMMARY
+// ════════════════════════════════════════════════════════════════
+function buildDaySummary(rows, sessions) {
+  // Collect all dates
+  const dateSet = new Set(rows.map(r => r.date));
+  const dates = [...dateSet].sort();
+
+  // Session minutes by date
+  const moyuByDate = {};
+  for (const s of sessions) {
+    moyuByDate[s.date] = (moyuByDate[s.date] || 0) + s.durMin;
+  }
+
+  return dates.map(date => {
+    const dayRows = rows.filter(r => r.date === date);
+    const workRows    = dayRows.filter(r => WORK_CATS.has(r.cat));
+    const nonworkRows = dayRows.filter(r => !WORK_CATS.has(r.cat));
+    const users = new Set(dayRows.map(r => r.userKey)).size;
+    const d = new Date(date.replace(/\//g,'-'));
+    const weekday = '周' + WEEKDAY[d.getDay()];
+    return {
+      date, weekday,
+      total: dayRows.length,
+      work: workRows.length,
+      nonwork: nonworkRows.length,
+      moyu: moyuByDate[date] || 0,
+      users,
+    };
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOP OFFENDERS
+// ════════════════════════════════════════════════════════════════
+function buildTopOffenders(sessions) {
+  const map = {};
+  for (const s of sessions) {
+    const v = VERDICTS[s.verdict];
+    if (!v) continue;
+    // Exclude pure false-positives from ranking
+    if (v.cls === 'fp') continue;
+    // Group by resolved label (phone number) so same person on 2 devices merges
+    const k = s.label || s.userKey;
+    if (!map[k]) map[k] = { label: k, dept: s.dept, totalMin: 0, sessionCount: 0 };
+    map[k].totalMin += s.durMin;
+    map[k].sessionCount++;
+  }
+  return Object.values(map)
+    .sort((a, b) => b.totalMin - a.totalMin)
+    .slice(0, 10);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ANOMALY GAPS
+// ════════════════════════════════════════════════════════════════
+function detectGaps(rows, phoneMap, isLunch) {
+  const groups = {};
+  for (const r of rows) {
+    const k = r.userKey + '||' + r.date;
+    if (!groups[k]) groups[k] = { userKey: r.userKey, date: r.date, dept: r.dept, rows: [] };
+    groups[k].rows.push(r);
+  }
+
+  const gaps = [];
+  for (const g of Object.values(groups)) {
+    const sorted = [...g.rows].sort((a, b) => a.minuteOfDay - b.minuteOfDay);
+    for (let i = 1; i < sorted.length; i++) {
+      const gapStart = sorted[i-1].minuteOfDay;
+      const gapEnd   = sorted[i].minuteOfDay;
+      const dur = gapEnd - gapStart;
+      if (dur < MIN_SESSION) continue;
+      if (gapStart < WH_START || gapEnd > WH_END + 60) continue; // extend slightly for late gaps
+      const lunch = gapStart >= 11*60 && gapEnd <= 14*60;
+      if (isLunch ? !lunch : lunch) continue;
+      const label = resolveLabel(g.userKey, phoneMap);
+      gaps.push({
+        label, dept: g.dept, date: g.date,
+        start: minToHM(gapStart), end: minToHM(gapEnd), durMin: dur,
+        userKey: g.userKey,
+      });
+    }
+  }
+  return gaps.sort((a, b) => b.durMin - a.durMin);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  BUILD FULL DATA OBJECT
+// ════════════════════════════════════════════════════════════════
+function buildData(allRows) {
+  const phoneMap    = buildPhoneMap(allRows);
+  const rawSessions = detectSessions(allRows, phoneMap);
+  const sessions    = rawSessions.map(s => classifySession(s, phoneMap));
+  const daySummary  = buildDaySummary(allRows, rawSessions);
+  const topOffenders= buildTopOffenders(sessions);
+  const anomalyGaps = detectGaps(allRows, phoneMap, false);
+  const lunchGaps   = detectGaps(allRows, phoneMap, true);
+
+  const pureCount  = sessions.filter(s => VERDICTS[s.verdict]?.cls === 'pure').length;
+  const mixedCount = sessions.filter(s => ['mixed','mostly'].includes(VERDICTS[s.verdict]?.cls)).length;
+  const fpCount    = sessions.filter(s => ['fp','sso','offhours'].includes(VERDICTS[s.verdict]?.cls)).length;
+
+  const champSession = [...sessions].sort((a,b) => b.durMin - a.durMin)[0];
+  const champMin   = champSession ? champSession.durMin : 0;
+  const champLabel = champSession ? champSession.label : '—';
+
+  const dates = [...new Set(allRows.map(r => r.date))].sort();
+  const dateRange = dates.length ? dates[0].slice(5) + ' — ' + dates[dates.length-1].slice(5) : '—';
+  const userCount = new Set(allRows.map(r => r.userKey)).size;
+
+  return {
+    kpi: {
+      totalSessions: sessions.length,
+      pureMoyu: pureCount, mixedWork: mixedCount, falsePositive: fpCount,
+      champMin, champLabel, anomalyGaps: anomalyGaps.length, lunchGaps: lunchGaps.length,
+    },
+    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps,
+    meta: { dateRange, userCount, fileCount: 1 },
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  REPORT RENDERERS
+// ════════════════════════════════════════════════════════════════
+function renderReport(DATA) {
+  // Meta
+  const d = DATA.meta;
+  document.getElementById('report-meta').innerHTML =
+    `分析范围：<b>${d.dateRange}</b> · 工作时段：<b>08:00–20:00</b> · 用户数：<b>${d.userCount}</b>`;
+
+  // KPI
+  const k = DATA.kpi;
+  const cards = [
+    { label:'触发摸鱼会话', value: k.totalSessions, sub:'≥30分钟非工作连续访问', cls:'' },
+    { label:'纯摸鱼',       value: k.pureMoyu,      sub:'无任何工作信号', cls:'red' },
+    { label:'混合（工作+摸鱼）', value: k.mixedWork, sub:'有内网/AI工具夹杂', cls:'orange' },
+    { label:'误判（实为工作）',  value: k.falsePositive, sub:'内网工具为主', cls:'' },
+    { label:'单次最长连续', value: k.champMin + 'min', sub: k.champLabel, cls:'orange' },
+    { label:'异常离网记录', value: k.anomalyGaps, sub:'工作时段内断网≥30分钟', cls:'amber' },
+  ];
+  document.getElementById('kpi-row').innerHTML = cards.map(c =>
+    `<div class="kpi-card">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value ${c.cls}">${c.value}</div>
+      <div class="kpi-sub">${c.sub}</div>
+    </div>`
+  ).join('');
+
+  // Day grid
+  const maxTotal = Math.max(1, ...DATA.daySummary.map(d => d.total));
+  const maxMoyu  = Math.max(1, ...DATA.daySummary.map(d => d.moyu));
+  const cols = Math.min(DATA.daySummary.length, 8);
+  document.getElementById('day-grid').style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  document.getElementById('day-grid').innerHTML = DATA.daySummary.map(day => {
+    const totalH = Math.round((day.total/maxTotal)*55)+5;
+    const moyuH  = Math.round((day.moyu/maxMoyu)*55)+5;
+    const wkd    = day.weekday === '周六' || day.weekday === '周日';
+    return `<div class="day-card ${wkd?'weekend':''}">
+      <div class="day-label">${day.weekday}</div>
+      <div class="day-date">${day.date.slice(5)}</div>
+      <div class="bar-wrap">
+        <div class="bar requests" style="height:${totalH}px"></div>
+        <div class="bar moyu" style="height:${moyuH}px"></div>
+      </div>
+      <div class="day-stat">用户 <b>${day.users}</b><br>摸鱼 <span class="moyu-min">${day.moyu||'—'}</span>${day.moyu?'min':''}</div>
+    </div>`;
+  }).join('');
+
+  // Session table
+  const maxDur = Math.max(1, ...DATA.sessions.map(s=>s.durMin));
+  const filterCounts = {};
+  DATA.sessions.forEach(s => {
+    const cls = VERDICTS[s.verdict]?.cls||'other';
+    filterCounts[cls] = (filterCounts[cls]||0)+1;
+  });
+  document.getElementById('filter-row').innerHTML = [
+    {key:'all', label:'全部 '+DATA.sessions.length},
+    {key:'pure', label:'纯摸鱼 '+(filterCounts.pure||0)},
+    {key:'mixed', label:'混合 '+((filterCounts.mixed||0)+(filterCounts.mostly||0))},
+    {key:'fp', label:'误判 '+(filterCounts.fp||0)},
+    {key:'offhours', label:'凌晨 '+(filterCounts.offhours||0)},
+    {key:'sso', label:'系统后台 '+(filterCounts.sso||0)},
+  ].map((f,i)=>`<button class="filter-btn${i===0?' active':''}" data-filter="${f.key}">${f.label}</button>`).join('');
+
+  document.getElementById('session-tbody').innerHTML = DATA.sessions.map(s => {
+    const vd = VERDICTS[s.verdict]||{cls:'fp',label:s.verdict};
+    const bw = Math.round((s.durMin/maxDur)*80);
+    const sigs = s.workSignals.map(sig=>{
+      const name = sig.replace(/\(.*\)/,'');
+      const cls  = sig.includes('内网工具')?'internal':sig.includes('AI工具')?'ai':'';
+      return `<span class="signal-tag ${cls}">${name}</span>`;
+    }).join('');
+    return `<tr data-verdict="${vd.cls}">
+      <td><b>${s.label}</b></td>
+      <td style="color:var(--muted)">${s.dept}</td>
+      <td style="white-space:nowrap;color:var(--muted)">${s.date.slice(5)} ${s.start}–${s.end}</td>
+      <td><div class="dur-wrap"><div class="dur-bar" style="width:${bw}px"></div><span class="dur-text">${s.durMin}min</span></div></td>
+      <td><span class="badge ${vd.cls}">${vd.label}</span></td>
+      <td>${sigs||'<span style="color:var(--muted);font-size:11px">无</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('filter-row').addEventListener('click', e => {
+    const btn = e.target.closest('.filter-btn'); if (!btn) return;
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const f = btn.dataset.filter;
+    document.querySelectorAll('#session-tbody tr').forEach(tr => {
+      if (f==='all') tr.classList.remove('hidden');
+      else if (f==='mixed') tr.classList.toggle('hidden', tr.dataset.verdict!=='mixed'&&tr.dataset.verdict!=='mostly');
+      else tr.classList.toggle('hidden', tr.dataset.verdict!==f);
+    });
+  });
+
+  // Top offenders
+  if (DATA.topOffenders.length) {
+    const maxMin = DATA.topOffenders[0].totalMin;
+    document.getElementById('offender-list').innerHTML = DATA.topOffenders.map((o,i)=>{
+      const pct = Math.round((o.totalMin/maxMin)*100);
+      return `<div class="offender-row">
+        <div class="offender-rank${i<3?' top':''}">${i+1}</div>
+        <div class="offender-info">
+          <div class="offender-name">${o.label}</div>
+          <div class="offender-dept">${o.dept}</div>
+        </div>
+        <div class="offender-bars">
+          <div class="offender-bar-bg"><div class="offender-bar-fill" style="width:${pct}%"></div></div>
+        </div>
+        <div class="offender-stats">
+          <div class="offender-min">${o.totalMin}<span style="font-size:11px;font-weight:400;color:var(--muted)">min</span></div>
+          <div class="offender-sessions">${o.sessionCount} 次会话</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Gantt
+  renderGantt(DATA);
+
+  // Gaps
+  document.getElementById('gap-list').innerHTML = DATA.anomalyGaps.map(g =>
+    `<div class="gap-card">
+      <div class="gap-who">${g.label}</div>
+      <div class="gap-dept">${g.dept}</div>
+      <div class="gap-time">${g.date.slice(5)} ${g.start} – ${g.end}</div>
+      <div class="gap-dur">${g.durMin} 分钟无网络活动</div>
+    </div>`
+  ).join('');
+}
+
+function renderGantt(DATA) {
+  const GSTART = 8*60, GEND = 20*60, SPAN = GEND-GSTART;
+  const toPct = min => Math.max(0,Math.min(100,(min-GSTART)/SPAN*100));
+  const hmToMin = hm => { const [h,m]=hm.split(':').map(Number); return h*60+m; };
+
+  const dates = [...new Set([...DATA.sessions,...DATA.anomalyGaps].map(x=>x.date))].sort();
+  const weekends = new Set(DATA.daySummary.filter(d=>d.weekday==='周六'||d.weekday==='周日').map(d=>d.date));
+  const dateLabels = {};
+  DATA.daySummary.forEach(d => { dateLabels[d.date] = d.date.slice(5)+' '+d.weekday; });
+
+  const byDate = {};
+  DATA.sessions.forEach(s => {
+    if (!byDate[s.date]) byDate[s.date]={};
+    if (!byDate[s.date][s.userKey]) byDate[s.date][s.userKey]={label:s.label,dept:s.dept,sessions:[],gaps:[]};
+    byDate[s.date][s.userKey].sessions.push(s);
+  });
+  DATA.anomalyGaps.forEach(g => {
+    const uKey = DATA.sessions.find(s=>s.label===g.label)?.userKey || g.userKey || g.label;
+    if (!byDate[g.date]) byDate[g.date]={};
+    if (!byDate[g.date][uKey]) byDate[g.date][uKey]={label:g.label,dept:g.dept,sessions:[],gaps:[]};
+    byDate[g.date][uKey].gaps.push(g);
+  });
+
+  const tip = document.getElementById('gtip');
+  document.addEventListener('mousemove', e => {
+    if (tip.style.display==='none') return;
+    let x=e.clientX+14, y=e.clientY-10;
+    if (x+270>window.innerWidth) x=e.clientX-280;
+    tip.style.left=x+'px'; tip.style.top=y+'px';
+  });
+
+  const LEGEND_COLORS = {pure:'#c0392b',mixed:'#d67c1c',mostly:'#c49b0a',fp:'#1a7a40',offhours:'#7c3aed',sso:'#374151',gap:'#7a6010'};
+  document.getElementById('gantt-legend').innerHTML = Object.entries({
+    pure:'纯摸鱼',mixed:'边工作边摸鱼',mostly:'偶尔工作',fp:'实为工作',offhours:'凌晨异常',sso:'系统后台',gap:'异常离网',
+  }).map(([k,v])=>`<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${LEGEND_COLORS[k]}"></div><span>${v}</span></div>`).join('');
+
+  function buildAxis() {
+    let h='<div class="gantt-axis">';
+    for (let hr=8;hr<=20;hr++) h+=`<div class="gantt-axis-tick" style="left:${(hr*60-GSTART)/SPAN*100}%">${hr}:00</div>`;
+    return h+'</div>';
+  }
+  function buildBar(startHM, endHM, cls, dur, tipHtml) {
+    const s=hmToMin(startHM), e=hmToMin(endHM);
+    const cs=Math.max(s,GSTART), ce=Math.min(e,GEND);
+    if (ce<=cs) return '';
+    const left=toPct(cs), width=(ce-cs)/SPAN*100;
+    return `<div class="gantt-bar ${cls}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" data-tip="${encodeURIComponent(tipHtml)}">${width>3?`<span class="gantt-bar-label">${dur}m</span>`:''}</div>`;
+  }
+
+  let html = '';
+  dates.forEach(date => {
+    if (!byDate[date]) return;
+    const users = Object.keys(byDate[date]);
+    if (!users.length) return;
+    html += `<div class="gantt-day-header"><div class="gantt-day-label${weekends.has(date)?' weekend':''}">${dateLabels[date]||date.slice(5)}</div>${buildAxis()}</div>`;
+    users.forEach(uKey => {
+      const row = byDate[date][uKey];
+      let bars = '';
+      row.sessions.forEach(s => {
+        const cls = VERDICTS[s.verdict]?.cls||'fp';
+        const sigs = s.workSignals.length ? s.workSignals.map(x=>x.replace(/\(.*\)/,'')).join(', ') : '无';
+        bars += buildBar(s.start, s.end, cls, s.durMin,
+          `<b>${s.label}</b><div class="gtip-row">时间：<span>${s.start}–${s.end}</span></div><div class="gtip-row">时长：<span>${s.durMin}分钟</span></div><div class="gtip-row">判定：<span>${s.verdict}</span></div><div class="gtip-row">工作信号：<span>${sigs}</span></div>`);
+      });
+      row.gaps.forEach(g => {
+        bars += buildBar(g.start, g.end, 'gap', g.durMin,
+          `<b>${g.label} 离网</b><div class="gtip-row">时间：<span>${g.start}–${g.end}</span></div><div class="gtip-row">时长：<span>${g.durMin}分钟</span></div>`);
+      });
+      html += `<div class="gantt-row"><div class="gantt-row-label"><div class="gl-name">${row.label}</div><div class="gl-dept">${row.dept}</div></div><div class="gantt-track">${bars}</div></div>`;
+    });
+  });
+
+  const wrap = document.getElementById('gantt-wrap');
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.gantt-bar').forEach(bar => {
+    bar.addEventListener('mouseenter', e => {
+      tip.innerHTML = decodeURIComponent(bar.dataset.tip);
+      tip.style.display='block';
+    });
+    bar.addEventListener('mouseleave', () => { tip.style.display='none'; });
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UPLOAD FLOW
+// ════════════════════════════════════════════════════════════════
+let selectedFiles = [];
+
+function formatSize(bytes) {
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+'KB';
+  return (bytes/1024/1024).toFixed(1)+'MB';
+}
+
+function refreshFileList() {
+  const list = document.getElementById('file-list');
+  list.innerHTML = selectedFiles.map((f, i) => `
+    <div class="file-item">
+      <span class="fi-name">${f.name}</span>
+      <span class="fi-size">${formatSize(f.size)}</span>
+      <span class="fi-del" data-idx="${i}">×</span>
+    </div>
+  `).join('');
+  list.querySelectorAll('.fi-del').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedFiles.splice(+btn.dataset.idx, 1);
+      refreshFileList();
+      document.getElementById('analyze-btn').style.display = selectedFiles.length ? 'block' : 'none';
+    });
+  });
+  document.getElementById('analyze-btn').style.display = selectedFiles.length ? 'block' : 'none';
+}
+
+function addFiles(files) {
+  for (const f of files) {
+    if (f.name.endsWith('.csv') && !selectedFiles.find(x=>x.name===f.name)) {
+      selectedFiles.push(f);
+    }
+  }
+  refreshFileList();
+}
+
+// Drag-drop
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('click', () => document.getElementById('file-input').click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  addFiles(e.target.files); e.target.value='';
+});
+
+// Back button
+document.getElementById('report-back').addEventListener('click', () => {
+  document.getElementById('report-view').style.display = 'none';
+  document.getElementById('upload-view').style.display = 'flex';
+  selectedFiles = [];
+  refreshFileList();
+  // Clear report DOM
+  ['kpi-row','day-grid','session-tbody','offender-list','gantt-wrap','gap-list','filter-row'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.innerHTML='';
+  });
+});
+
+// Analyze
+document.getElementById('analyze-btn').addEventListener('click', async () => {
+  if (!selectedFiles.length) return;
+  const overlay = document.getElementById('processing-overlay');
+  const stepEl  = document.getElementById('proc-step');
+  const textEl  = document.getElementById('proc-text');
+  overlay.classList.add('active');
+
+  // Read all CSVs
+  let allRows = [];
+  for (let i = 0; i < selectedFiles.length; i++) {
+    stepEl.textContent = `正在读取 ${selectedFiles[i].name}`;
+    textEl.textContent = `文件 ${i+1} / ${selectedFiles.length}`;
+    await new Promise(r => setTimeout(r, 50)); // yield to browser
+    const text = await selectedFiles[i].text();
+    const rows = parseCSV(text);
+    allRows = allRows.concat(rows);
+  }
+
+  // Deduplicate by composite key (time+userKey+domain)
+  stepEl.textContent = '正在合并去重…';
+  textEl.textContent = `原始行数：${allRows.length}`;
+  await new Promise(r => setTimeout(r, 50));
+  const seen = new Set();
+  allRows = allRows.filter(r => {
+    const k = r.date+'|'+r.time+'|'+r.userKey+'|'+r.domain;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+
+  stepEl.textContent = '正在检测摸鱼会话…';
+  textEl.textContent = `去重后行数：${allRows.length}`;
+  await new Promise(r => setTimeout(r, 50));
+
+  const DATA = buildData(allRows);
+  DATA.meta.fileCount = selectedFiles.length;
+
+  stepEl.textContent = '正在渲染报告…';
+  textEl.textContent = `检测到 ${DATA.kpi.totalSessions} 个摸鱼会话`;
+  await new Promise(r => setTimeout(r, 50));
+
+  renderReport(DATA);
+
+  overlay.classList.remove('active');
+  document.getElementById('upload-view').style.display = 'none';
+  document.getElementById('report-view').style.display = 'block';
+  window.scrollTo(0, 0);
+});
+</script>
+</body>
+</html>
