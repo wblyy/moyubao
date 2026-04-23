@@ -321,26 +321,35 @@ function parseCSV(text) {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const lines = text.split(/\r?\n/);
   const headers = parseLine(lines[0]).map(h => h.trim());
+  console.log('[debug] CSV headers:', JSON.stringify(headers));
   const rows = [];
+  let nullReasons = { noSpace: 0, badTime: 0, noUserKey: 0 };
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     const vals = parseLine(lines[i]);
     const raw = {};
     headers.forEach((h, j) => { raw[h] = (vals[j] || '').trim(); });
-    const r = normalizeRow(raw);
+    const r = normalizeRow(raw, nullReasons);
     if (r) rows.push(r);
+  }
+  console.log('[debug] rows parsed:', rows.length, '| null reasons:', nullReasons);
+  if (rows.length === 0 && lines.length > 1) {
+    const vals = parseLine(lines[1]);
+    const sample = {};
+    headers.forEach((h, j) => { sample[h] = vals[j] || ''; });
+    console.log('[debug] sample row1:', JSON.stringify(sample));
   }
   return rows;
 }
 
-function normalizeRow(raw) {
+function normalizeRow(raw, dbg) {
   const timeStr = raw['网站访问时间'] || '';
   const spaceIdx = timeStr.lastIndexOf(' ');
-  if (spaceIdx < 0) return null;
+  if (spaceIdx < 0) { if (dbg) dbg.noSpace++; return null; }
   const date = timeStr.slice(0, spaceIdx);   // "2026/04/17"
   const time = timeStr.slice(spaceIdx + 1);  // "17:51"
   const [h, m] = time.split(':').map(Number);
-  if (isNaN(h) || isNaN(m)) return null;
+  if (isNaN(h) || isNaN(m)) { if (dbg) dbg.badTime++; return null; }
   const minuteOfDay = h * 60 + m;
 
   const email  = raw['所属用户邮箱'] || '';
@@ -350,7 +359,7 @@ function normalizeRow(raw) {
   const domain = raw['域名地址'] || '';
   const cat    = raw['网站分类'] || '';
   const userKey = (email && email !== '-') ? email : devId;
-  if (!userKey) return null;
+  if (!userKey) { if (dbg) dbg.noUserKey++; return null; }
 
   return { date, time, minuteOfDay, userKey, email, phone, dept, devId, domain, cat };
 }
