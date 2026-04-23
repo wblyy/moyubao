@@ -94,10 +94,25 @@
   .sticky-table tr:hover td { background: rgba(79,110,247,0.04); }
   .slot-bar { display: inline-block; height: 6px; background: var(--accent); border-radius: 2px; opacity: 0.7; vertical-align: middle; margin-left: 6px; }
 
+  /* ── PDF Export Button ───────────────────────────────── */
+  .export-pdf-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; background: transparent;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    color: var(--muted); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; vertical-align: middle;
+    margin-left: 14px;
+  }
+  .export-pdf-btn:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ── Print ───────────────────────────────────────────── */
   @media print {
     * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    #upload-view, #processing-overlay, #parse-error, .report-back, .metric-tabs { display: none !important; }
+    #upload-view, #processing-overlay, #parse-error,
+    .report-back, .metric-tabs, .export-pdf-btn { display: none !important; }
+    .page { padding: 20px !important; }
+    .heat-row { page-break-inside: avoid; }
+    .sticky-section { page-break-inside: avoid; }
   }
 </style>
 </head>
@@ -116,7 +131,7 @@
   <div class="file-list" id="file-list"></div>
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
   <div id="parse-error"></div>
-  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.1 · 2026-04-23</div>
+  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.2 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing ─────────────────────────────────────── -->
@@ -136,7 +151,10 @@
   <div class="report-back" id="report-back">← 重新上传</div>
 
   <div class="report-header">
-    <div class="report-title">摸鱼宝 · <span>30分钟粒度行为分析</span></div>
+    <div class="report-title">
+      摸鱼宝 · <span>30分钟粒度行为分析</span>
+      <button class="export-pdf-btn" id="export-pdf-btn" title="导出当前视图为 PDF">⬇ 导出 PDF</button>
+    </div>
     <div class="report-meta" id="report-meta"></div>
   </div>
 
@@ -742,6 +760,10 @@ dropZone.addEventListener('drop', e => {
 });
 document.getElementById('file-input').addEventListener('change', e => {
   addFiles(e.target.files); e.target.value = '';
+});
+
+document.getElementById('export-pdf-btn').addEventListener('click', () => {
+  window.print();
 });
 
 document.getElementById('report-back').addEventListener('click', () => {
