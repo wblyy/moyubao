@@ -232,7 +232,7 @@
     分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
     已内置 WPS 自动同步过滤、系统证书检查过滤。
   </div>
-  <div style="margin-top:12px;color:#555;font-size:11px;">v2.4.0 · 2026-04-23</div>
+  <div style="margin-top:12px;color:#555;font-size:11px;">v2.5.0 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing Overlay ───────────────────────────────── -->
@@ -619,6 +619,38 @@ function detectGaps(rows, phoneMap, isLunch) {
   return gaps.sort((a, b) => b.durMin - a.durMin);
 }
 
+// Tiered gap detection for Gantt (10min+ = shown, severity by duration)
+function detectAllGaps(rows, phoneMap) {
+  const MIN_GAP = 10; // 10 min minimum to show on Gantt
+  const groups = {};
+  for (const r of rows) {
+    const k = r.userKey + '||' + r.date;
+    if (!groups[k]) groups[k] = { userKey: r.userKey, date: r.date, dept: r.dept, rows: [] };
+    groups[k].rows.push(r);
+  }
+  const gaps = [];
+  for (const g of Object.values(groups)) {
+    const sorted = [...g.rows].sort((a, b) => a.minuteOfDay - b.minuteOfDay);
+    for (let i = 1; i < sorted.length; i++) {
+      const gapStart = sorted[i-1].minuteOfDay;
+      const gapEnd   = sorted[i].minuteOfDay;
+      const dur = gapEnd - gapStart;
+      if (dur < MIN_GAP) continue;
+      if (gapStart < WH_START || gapEnd > WH_END + 30) continue;
+      const isLunch = gapStart >= 11*60 && gapEnd <= 14*60 && dur >= 30;
+      // severity: light 10-30, medium 30-60, heavy 60+
+      const severity = dur >= 60 ? 'heavy' : dur >= 30 ? 'medium' : 'light';
+      const label = resolveLabel(g.userKey, phoneMap);
+      gaps.push({
+        label, dept: g.dept, date: g.date, userKey: g.userKey,
+        start: minToHM(gapStart), end: minToHM(gapEnd), durMin: dur,
+        severity, isLunch,
+      });
+    }
+  }
+  return gaps;
+}
+
 // ════════════════════════════════════════════════════════════════
 //  BUILD FULL DATA OBJECT
 // ════════════════════════════════════════════════════════════════
@@ -658,6 +690,7 @@ function buildData(allRows) {
   const anomalyGaps = detectGaps(allRows, phoneMap, false);
   const lunchGaps   = detectGaps(allRows, phoneMap, true);
   const workSegments= buildWorkSegments(allRows, phoneMap);
+  const tieredGaps  = detectAllGaps(allRows, phoneMap);
 
   // Track all users active per date (for full Gantt coverage)
   const userActivity = {};
@@ -690,7 +723,7 @@ function buildData(allRows) {
       pureMoyu: pureCount, mixedWork: mixedCount, falsePositive: fpCount,
       champMin, champLabel, anomalyGaps: anomalyGaps.length, lunchGaps: lunchGaps.length,
     },
-    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps, workSegments, userActivity,
+    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps, workSegments, userActivity, tieredGaps,
     meta: { dateRange, userCount, fileCount: 1 },
   };
 }
@@ -851,6 +884,11 @@ function renderGantt(DATA) {
     initUser(s.date, s.userKey, s.label, s.dept);
     byDate[s.date][s.userKey].sessions.push(s);
   });
+  DATA.tieredGaps.forEach(g => {
+    initUser(g.date, g.userKey, g.label, g.dept);
+    if (!byDate[g.date][g.userKey].tieredGaps) byDate[g.date][g.userKey].tieredGaps = [];
+    byDate[g.date][g.userKey].tieredGaps.push(g);
+  });
   DATA.anomalyGaps.forEach(g => {
     const uKey = DATA.sessions.find(s=>s.label===g.label)?.userKey || g.userKey || g.label;
     initUser(g.date, uKey, g.label, g.dept);
@@ -869,10 +907,10 @@ function renderGantt(DATA) {
     tip.style.left=x+'px'; tip.style.top=y+'px';
   });
 
-  const LEGEND_COLORS = {work:'#1a6b3a',pure:'#c0392b',mixed:'#d67c1c',mostly:'#c49b0a',fp:'#1a7a40',offhours:'#7c3aed',sso:'#374151',gap:'#7a6010'};
+  const LEGEND_COLORS = {work:'#1a6b3a',pure:'#c0392b',mixed:'#d67c1c',mostly:'#c49b0a',fp:'#1a7a40',offhours:'#7c3aed',sso:'#374151',gap:'#7a6010',light:'#4b5563',medium:'#b45309',heavy:'#991b1b'};
   document.getElementById('gantt-legend').innerHTML = Object.entries({
-    work:'工作时段',pure:'纯摸鱼',mixed:'边工作边摸鱼',mostly:'偶尔工作',fp:'实为工作',offhours:'凌晨异常',sso:'系统后台',gap:'异常离网',
-  }).map(([k,v])=>`<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${LEGEND_COLORS[k]}${k==='work'?';opacity:0.6':''}"></div><span>${v}</span></div>`).join('');
+    work:'工作时段',pure:'纯摸鱼',mixed:'边工作边摸鱼',mostly:'偶尔工作',fp:'实为工作',offhours:'凌晨异常',sso:'系统后台',gap:'异常离网',light:'短暂无记录(10-30m)',medium:'离座可疑(30-60m)',heavy:'长时间失联(60m+)',
+  }).map(([k,v])=>`<div class="gantt-legend-item"><div class="gantt-legend-dot" style="background:${LEGEND_COLORS[k]}${k==='work'?';opacity:0.6':k==='light'?';opacity:0.4':k==='medium'?';opacity:0.65':k==='heavy'?';opacity:0.85':''}"></div><span>${v}</span></div>`).join('');
 
   function buildAxis() {
     let h='<div class="gantt-axis">';
@@ -896,7 +934,20 @@ function renderGantt(DATA) {
     users.forEach(uKey => {
       const row = byDate[date][uKey];
       let bars = '';
-      // Work segments rendered first (bottom layer, subdued green)
+      // Tiered gap bars rendered first (deepest layer — absence indicators)
+      const GAP_TIER = { light: '#4b5563', medium: '#b45309', heavy: '#991b1b' };
+      const GAP_LABEL = { light: '短暂无记录', medium: '离座可疑', heavy: '长时间失联' };
+      (row.tieredGaps || []).forEach(g => {
+        const s=hmToMin(g.start), e=hmToMin(g.end);
+        const cs=Math.max(s,GSTART), ce=Math.min(e,GEND);
+        if (ce<=cs) return;
+        const left=toPct(cs), width=(ce-cs)/SPAN*100;
+        const col = GAP_TIER[g.severity];
+        const lbl = GAP_LABEL[g.severity];
+        const lunchNote = g.isLunch ? '（午休时段）' : '';
+        bars += `<div class="gantt-bar" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;background:${col};opacity:${g.severity==='heavy'?0.85:g.severity==='medium'?0.65:0.4};top:12px;height:4px;${g.severity==='heavy'?'border-top:1px dashed #ef4444;':''}" data-tip="${encodeURIComponent(`<b>${g.label} ${lbl}</b>${lunchNote}<div class="gtip-row">时间：<span>${g.start}–${g.end}</span></div><div class="gtip-row">时长：<span>${g.durMin}分钟</span></div><div class="gtip-row">级别：<span>${lbl}</span></div>`)}"></div>`;
+      });
+      // Work segments rendered next (subdued green)
       row.workSegs.forEach(w => {
         const s=hmToMin(w.startTime), e=hmToMin(w.endTime);
         const cs=Math.max(s,GSTART), ce=Math.min(e,GEND);
