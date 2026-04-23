@@ -140,7 +140,7 @@
   <div class="file-list" id="file-list"></div>
   <button class="analyze-btn" id="analyze-btn">开始分析</button>
   <div id="parse-error"></div>
-  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.3 · 2026-04-23</div>
+  <div style="margin-top:14px;color:#999;font-size:11px;">v1.1.4 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing ─────────────────────────────────────── -->
@@ -159,6 +159,7 @@
 
   <div class="report-back" id="report-back">← 重新上传</div>
 
+  <div id="parse-warn-notice" class="ghost-notice" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#7f1d1d;line-height:1.7"></div>
   <div id="ghost-notice" class="ghost-notice" style="display:none"></div>
 
   <div class="report-header">
@@ -248,8 +249,9 @@ function parseCSV(text) {
     const r = normalizeRow(raw, dbg);
     if (r) rows.push(r);
   }
-  console.log('[debug] rows:', rows.length, 'null reasons:', dbg, 'headers:', headers);
-  return { rows, headers, lines };
+  const discarded = dbg.noSpace + dbg.badTime + dbg.noUserKey;
+  console.log('[debug] rows:', rows.length, 'discarded:', discarded, dbg, 'headers:', headers);
+  return { rows, headers, lines, dbg, discarded };
 }
 
 function normalizeRow(raw, dbg) {
@@ -658,8 +660,26 @@ function renderReport(DATA, meta) {
   const dateRange = DATA.dates.length > 1
     ? `${DATA.dates[0]} – ${DATA.dates[DATA.dates.length-1]}`
     : DATA.dates[0] || '—';
+  const totalDiscarded = (meta.parseStats || []).reduce((s, f) => s + f.discarded, 0);
+  const discardNote = totalDiscarded > 0
+    ? ` · <span style="color:#dc2626">⚠ ${totalDiscarded} 行解析失败</span>`
+    : '';
   document.getElementById('report-meta').innerHTML =
-    `共 <b>${DATA.users.length}</b> 人 · <b>${DATA.dates.length}</b> 天 · ${dateRange} · 总行数 ${meta.totalRows} 条`;
+    `共 <b>${DATA.users.length}</b> 人 · <b>${DATA.dates.length}</b> 天 · ${dateRange} · 有效行 ${meta.totalRows} 条${discardNote}`;
+
+  // Parse discard warning: show files with significant discards
+  const parseWarnEl = document.getElementById('parse-warn-notice');
+  const badFiles = (meta.parseStats || []).filter(f => f.discarded > 0);
+  if (badFiles.length > 0) {
+    parseWarnEl.innerHTML = `<b>⚠ 以下文件有行被丢弃（时间格式无法识别或缺少用户标识），这些行中的人员不会出现在分析结果里：</b><br>` +
+      badFiles.map(f => `<span style="margin-top:4px;display:inline-block">
+        · ${f.name}：共 ${f.total} 行，<b style="color:#dc2626">${f.discarded} 行被丢弃</b>（无时间格式:${f.dbg.noSpace}, 时间解析失败:${f.dbg.badTime}, 无用户标识:${f.dbg.noUserKey}）<br>
+        &nbsp;&nbsp;列头：<code style="font-size:11px">${f.headers.join(' | ')}</code></span>`
+      ).join('');
+    parseWarnEl.style.display = 'block';
+  } else {
+    parseWarnEl.style.display = 'none';
+  }
 
   // Ghost user notice
   const ghostEl = document.getElementById('ghost-notice');
@@ -815,12 +835,15 @@ document.getElementById('analyze-btn').addEventListener('click', async () => {
   overlay.classList.add('active');
 
   let allRows = [];
+  const parseStats = [];  // per-file: { name, total, ok, discarded, dbg, headers, sampleLine }
   for (let i = 0; i < selectedFiles.length; i++) {
     stepEl.textContent = `正在读取 ${selectedFiles[i].name}`;
     textEl.textContent = `文件 ${i+1} / ${selectedFiles.length}`;
     await new Promise(r => setTimeout(r, 50));
     const text = await selectedFiles[i].text();
-    const { rows, headers, lines } = parseCSV(text);
+    const { rows, headers, lines, dbg, discarded } = parseCSV(text);
+    const total = rows.length + discarded;
+    parseStats.push({ name: selectedFiles[i].name, total, ok: rows.length, discarded, dbg, headers, sampleLine: lines[1]?.slice(0,200)||'(空)' });
     if (rows.length === 0) {
       overlay.classList.remove('active');
       const errEl = document.getElementById('parse-error');
@@ -854,7 +877,7 @@ document.getElementById('analyze-btn').addEventListener('click', async () => {
   await new Promise(r => setTimeout(r, 50));
 
   overlay.classList.remove('active');
-  renderReport(DATA, { totalRows: allRows.length });
+  renderReport(DATA, { totalRows: allRows.length, parseStats });
 });
 </script>
 </body>
