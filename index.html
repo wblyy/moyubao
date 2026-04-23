@@ -232,7 +232,7 @@
     分析规则：连续 ≥30 分钟仅访问非工作类网站 = 一段摸鱼会话。工作时段 08:00–20:00。
     已内置 WPS 自动同步过滤、系统证书检查过滤。
   </div>
-  <div style="margin-top:12px;color:#555;font-size:11px;">v2.3.0 · 2026-04-23</div>
+  <div style="margin-top:12px;color:#555;font-size:11px;">v2.4.0 · 2026-04-23</div>
 </div>
 
 <!-- ── Processing Overlay ───────────────────────────────── -->
@@ -659,6 +659,19 @@ function buildData(allRows) {
   const lunchGaps   = detectGaps(allRows, phoneMap, true);
   const workSegments= buildWorkSegments(allRows, phoneMap);
 
+  // Track all users active per date (for full Gantt coverage)
+  const userActivity = {};
+  for (const r of allRows) {
+    if (r.minuteOfDay < WH_START || r.minuteOfDay > WH_END) continue;
+    if (!userActivity[r.date]) userActivity[r.date] = {};
+    if (!userActivity[r.date][r.userKey]) {
+      userActivity[r.date][r.userKey] = {
+        userKey: r.userKey, dept: r.dept,
+        label: resolveLabel(r.userKey, phoneMap)
+      };
+    }
+  }
+
   const pureCount  = sessions.filter(s => VERDICTS[s.verdict]?.cls === 'pure').length;
   const mixedCount = sessions.filter(s => ['mixed','mostly'].includes(VERDICTS[s.verdict]?.cls)).length;
   const fpCount    = sessions.filter(s => ['fp','sso','offhours'].includes(VERDICTS[s.verdict]?.cls)).length;
@@ -677,7 +690,7 @@ function buildData(allRows) {
       pureMoyu: pureCount, mixedWork: mixedCount, falsePositive: fpCount,
       champMin, champLabel, anomalyGaps: anomalyGaps.length, lunchGaps: lunchGaps.length,
     },
-    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps, workSegments,
+    daySummary, sessions, topOffenders, anomalyGaps, lunchGaps, workSegments, userActivity,
     meta: { dateRange, userCount, fileCount: 1 },
   };
 }
@@ -816,7 +829,11 @@ function renderGantt(DATA) {
   const toPct = min => Math.max(0,Math.min(100,(min-GSTART)/SPAN*100));
   const hmToMin = hm => { const [h,m]=hm.split(':').map(Number); return h*60+m; };
 
-  const dates = [...new Set([...DATA.sessions,...DATA.anomalyGaps,...DATA.workSegments].map(x=>x.date))].sort();
+  const dates = [...new Set([
+    ...Object.keys(DATA.userActivity),
+    ...DATA.sessions.map(x=>x.date),
+    ...DATA.anomalyGaps.map(x=>x.date)
+  ])].sort();
   const weekends = new Set(DATA.daySummary.filter(d=>d.weekday==='周六'||d.weekday==='周日').map(d=>d.date));
   const dateLabels = {};
   DATA.daySummary.forEach(d => { dateLabels[d.date] = d.date.slice(5)+' '+d.weekday; });
@@ -826,6 +843,10 @@ function renderGantt(DATA) {
     if (!byDate[date]) byDate[date]={};
     if (!byDate[date][uKey]) byDate[date][uKey]={label,dept,sessions:[],gaps:[],workSegs:[]};
   };
+  // Seed from ALL active users so every user appears in every day they were active
+  Object.entries(DATA.userActivity).forEach(([date, users]) => {
+    Object.entries(users).forEach(([uKey, u]) => initUser(date, uKey, u.label, u.dept));
+  });
   DATA.sessions.forEach(s => {
     initUser(s.date, s.userKey, s.label, s.dept);
     byDate[s.date][s.userKey].sessions.push(s);
